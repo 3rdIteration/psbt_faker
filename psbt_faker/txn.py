@@ -6,6 +6,11 @@ from binascii import b2a_hex, a2b_hex
 from io import BytesIO
 from pprint import pprint, pformat
 from decimal import Decimal
+
+from ._compat import ensure_pycoin_compat
+
+ensure_pycoin_compat()
+
 from pycoin.key.BIP32Node import BIP32Node
 from .psbt import BasicPSBT, BasicPSBTInput, BasicPSBTOutput, PSBT_IN_REDEEM_SCRIPT
 

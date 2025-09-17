@@ -14,6 +14,12 @@ from binascii import a2b_hex
 from io import BytesIO
 from collections import namedtuple
 from base64 import b64encode, b64decode
+import urllib.request
+
+from ._compat import ensure_pycoin_compat
+
+ensure_pycoin_compat()
+
 from pycoin.tx.Tx import Tx
 from pycoin.tx.TxOut import TxOut
 from pycoin.tx.TxIn import TxIn
@@ -22,7 +28,6 @@ from pycoin.encoding import b2a_hashed_base58, hash160
 from pycoin.serialize import b2h_rev, b2h, h2b, h2b_rev
 from pycoin.key.BIP32Node import BIP32Node
 from pycoin.convention import tx_fee
-import urllib.request
 
 from .txn import *
 
