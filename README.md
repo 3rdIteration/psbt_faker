@@ -21,6 +21,19 @@ python3 -m pip install --editable .
 rehash
 ```
 
+### Run without installing
+
+If you prefer to execute the tool directly from the source tree without
+installing the package, install the runtime dependencies and invoke the module
+entry point:
+
+```sh
+git clone https://github.com/Coldcard/psbt_faker.git
+cd psbt_faker
+python3 -m pip install -r requirements.txt
+python3 -m psbt_faker --help
+```
+
 ## Usage
 
 ```sh
