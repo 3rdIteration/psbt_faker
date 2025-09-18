@@ -22,6 +22,46 @@ from .helpers import str2ipath, hash160
 
 HARDENED = 2 ** 31
 
+# Known extended key version prefixes. These constants cover the standard
+# BIP32 prefixes as well as the SLIP-0132 variants introduced by new versions
+# of pycoin (e.g. ypub/zpub and the multisig Ypub/Zpub counterparts). Each
+# entry maps to a tuple of (netcode, is_testnet, key_type) where key_type is
+# either "pub" or "prv".
+#
+# Reference prefixes:
+#   Mainnet public  : xpub(0x0488B21E), ypub(0x049D7CB2), Ypub(0x0295B43F),
+#                     zpub(0x04B24746), Zpub(0x02AA7ED3)
+#   Mainnet private : xprv(0x0488ADE4), yprv(0x049D7878), Yprv(0x0295B005),
+#                     zprv(0x04B2430C), Zprv(0x02AA7A99)
+#   Testnet public  : tpub(0x043587CF), upub(0x044A5262), Upub(0x024289EF),
+#                     vpub(0x045F1CF6), Vpub(0x02575483)
+#   Testnet private : tprv(0x04358394), uprv(0x044A4E28), Uprv(0x024285B5),
+#                     vprv(0x045F18BC), Vprv(0x02575048)
+#
+# These values are encoded in big-endian form as defined by SLIP-0132.
+EXTENDED_KEY_VERSIONS = {
+    0x0488B21E: ("BTC", False, "pub"),  # xpub
+    0x0488ADE4: ("BTC", False, "prv"),  # xprv
+    0x049D7CB2: ("BTC", False, "pub"),  # ypub
+    0x049D7878: ("BTC", False, "prv"),  # yprv
+    0x0295B43F: ("BTC", False, "pub"),  # Ypub
+    0x0295B005: ("BTC", False, "prv"),  # Yprv
+    0x04B24746: ("BTC", False, "pub"),  # zpub
+    0x04B2430C: ("BTC", False, "prv"),  # zprv
+    0x02AA7ED3: ("BTC", False, "pub"),  # Zpub
+    0x02AA7A99: ("BTC", False, "prv"),  # Zprv
+    0x043587CF: ("XTN", True, "pub"),   # tpub
+    0x04358394: ("XTN", True, "prv"),   # tprv
+    0x044A5262: ("XTN", True, "pub"),   # upub
+    0x044A4E28: ("XTN", True, "prv"),   # uprv
+    0x024289EF: ("XTN", True, "pub"),   # Upub
+    0x024285B5: ("XTN", True, "prv"),   # Uprv
+    0x045F1CF6: ("XTN", True, "pub"),   # vpub
+    0x045F18BC: ("XTN", True, "prv"),   # vprv
+    0x02575483: ("XTN", True, "pub"),   # Vpub
+    0x02575048: ("XTN", True, "prv"),   # Vprv
+}
+
 Prv_or_PubKeyNode = Union["PrvKeyNode", "PubKeyNode"]
 
 
@@ -701,13 +741,22 @@ class BIP32Node:
 
     @classmethod
     def from_hwif(cls, extended_key):
-        assert extended_key[0] in "xt"
-        testnet = extended_key[0] == "t"
-        if extended_key[1:4] == "prv":
-            ek = PrvKeyNode.parse(extended_key, testnet)
-        else:
-            ek = PubKeyNode.parse(extended_key, testnet)
-        return cls(ek, netcode="XTN" if testnet else "BTC")
+        key = extended_key.strip()
+        if key.startswith("["):
+            close = key.find("]")
+            if close == -1:
+                raise ValueError("invalid extended key origin info")
+            key = key[close + 1:]
+        raw = decode_base58_checksum(key)
+        version = big_endian_to_int(raw[:4])
+        try:
+            netcode, is_testnet, key_type = EXTENDED_KEY_VERSIONS[version]
+        except KeyError:
+            raise ValueError(f"unsupported extended key prefix: {key[:4]}")
+
+        node_cls = PrvKeyNode if key_type == "prv" else PubKeyNode
+        node = node_cls._parse(BytesIO(raw), testnet=is_testnet)
+        return cls(node, netcode=netcode)
 
     def subkey_for_path(self, path):
         path_list = list(str2ipath(path))

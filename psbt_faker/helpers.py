@@ -1,6 +1,55 @@
 import struct, hashlib
 from .ripemd import ripemd160
 
+
+def parse_origin_string(origin):
+    """Parse an origin string of the form ``F23A9C1D/84h/1h/0h``.
+
+    The fingerprint component is required and must be expressed as an eight
+    character hexadecimal value. The derivation path portion is optional and
+    may include hardened markers using either ``'`` or ``h`` suffixes. Leading
+    ``m/`` prefixes are ignored. Returns a tuple of ``(fingerprint_bytes,
+    derivation_path_or_None)``.
+    """
+
+    if origin is None:
+        raise ValueError("missing origin")
+
+    value = origin.strip()
+    if not value:
+        raise ValueError("empty origin")
+
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+
+    if not value:
+        raise ValueError("empty origin")
+
+    parts = value.split("/", 1)
+    fingerprint = parts[0].strip()
+    if len(fingerprint) != 8:
+        raise ValueError("fingerprint must be 8 hex characters")
+    try:
+        xfp = bytes.fromhex(fingerprint)
+    except ValueError as exc:
+        raise ValueError("fingerprint must be hexadecimal") from exc
+
+    path = None
+    if len(parts) == 2:
+        path = parts[1].strip()
+        if path:
+            if path[0] in "mM":
+                if len(path) == 1:
+                    path = None
+                elif path[1] == "/":
+                    path = path[2:]
+            if path:
+                path = path.rstrip("/")
+        else:
+            path = None
+
+    return xfp, path
+
 def str2ipath(s):
     # convert text to numeric path for BIP174
     for i in s.split('/'):
