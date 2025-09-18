@@ -69,6 +69,23 @@ Key points when signing:
   inputs are finalized. Skip it and add `--no-finalize` if you only need
   partial signatures for a hardware signer to finalize.
 
+If you only need to craft an unsigned PSBT for SeedSigner without revealing any
+signing credentials, provide the fingerprint and derivation path separately via
+`--seed-origin`. This augments or replaces the origin details embedded in the
+XPUB argument:
+
+```sh
+# Produce an unsigned, SeedSigner-compatible PSBT without supplying private
+# material to psbt_faker. The fingerprint/path combination mirrors the account
+# you intend to sign with on SeedSigner.
+python3 -m psbt_faker unsigned.psbt tpub... \
+    --segwit --styles p2wpkh \
+    --seed-origin F23A9C1D/84h/1h/0h
+```
+
+The `--seed-origin` flag accepts strings such as `F23A9C1D` or
+`[F23A9C1D/84h/1h/0h]` and only applies to single-sig transactions.
+
 ## Usage
 
 ```sh
@@ -104,6 +121,8 @@ Options:
   -n, --input-amount INTEGER      Size of each input in sats (default 100k
                                   sats each input)
   -I, --incl-xpubs                [MS] Include XPUBs in PSBT global section
+      --seed-origin TEXT          [SS] Override the fingerprint/derivation
+                                  recorded in PSBT inputs (format XFP/path)
   --help                          Show this message and exit.
 ```
 

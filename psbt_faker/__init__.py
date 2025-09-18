@@ -15,6 +15,7 @@ from .txn import fake_ms_txn, fake_txn, ADDR_STYLES
 from .multisig import from_simple_text
 from .psbt import BasicPSBT
 from .signing import derive_signing_node, sign_psbt, SigningError
+from .helpers import parse_origin_string
 
 b2a_hex = lambda a: str(_b2a_hex(a), 'ascii')
 #xfp2hex = lambda a: b2a_hex(a[::-1]).upper()
@@ -41,6 +42,7 @@ SIM_XPUB = 'tpubD6NzVbkrYhZ4XzL5Dhayo67Gorv1YMS7j8pRUvVMd5odC2LBPLAygka9p7748JtS
 @click.option('--locktime', '-l', help="nLocktime value (default 0), use 'current' to fetch best block height from mempool.space", default="0")
 @click.option('--input-amount', '-n', help="Size of each input in sats (default 100k sats each input)", default=100000)
 @click.option('--incl-xpubs', '-I',  help="[MS] Include XPUBs in PSBT global section", is_flag=True, default=False)
+@click.option('--seed-origin', help="[SS] Override the fingerprint/derivation recorded in PSBT inputs (format XFP/path)", default=None)
 @click.option('--signing-mnemonic', help="BIP39 mnemonic used to derive signing keys", default=None)
 @click.option('--signing-passphrase', help="Optional BIP39 passphrase", default="", show_default=True)
 @click.option('--signing-xprv', help="Extended private key used for signing", default=None)
@@ -50,7 +52,7 @@ SIM_XPUB = 'tpubD6NzVbkrYhZ4XzL5Dhayo67Gorv1YMS7j8pRUvVMd5odC2LBPLAygka9p7748JtS
 @click.option('--no-finalize', is_flag=True, help="Add partial signatures without finalizing scripts/witnesses", default=False)
 def main(num_ins, num_change, num_outs, out_psbt, testnet, xpub, segwit, fee, styles, base64,
          partial, zero_xfp, multisig, locktime, input_amount, psbt2, incl_xpubs, wrapped,
-         signing_mnemonic, signing_passphrase, signing_xprv, signing_root_path,
+         seed_origin, signing_mnemonic, signing_passphrase, signing_xprv, signing_root_path,
          signed_psbt, final_txn, no_finalize):
     '''Construct a valid PSBT which spends non-existant BTC to random addresses!'''
 
@@ -64,6 +66,18 @@ def main(num_ins, num_change, num_outs, out_psbt, testnet, xpub, segwit, fee, st
     else:
         locktime = int(locktime)
 
+    if seed_origin and multisig:
+        raise click.UsageError('--seed-origin is only supported for single-sig transactions')
+
+    parsed_seed_origin = None
+    if seed_origin:
+        try:
+            parsed_seed_origin = parse_origin_string(seed_origin)
+        except ValueError as exc:
+            raise click.UsageError(f'invalid --seed-origin value: {exc}') from exc
+
+    sanitized_xpub = xpub
+
     if multisig:
         ms_config = multisig.read()
         name, af, keys, M, N = from_simple_text(ms_config.split("\n"))
@@ -75,11 +89,39 @@ def main(num_ins, num_change, num_outs, out_psbt, testnet, xpub, segwit, fee, st
         if zero_xfp:
             xpub = None
 
-        psbt, outs = fake_txn(num_ins, num_outs, master_xpub=xpub, fee=fee,
+        origin_from_xpub = None
+        if xpub:
+            sanitized_xpub = xpub.strip()
+            if sanitized_xpub.startswith('['):
+                close_idx = sanitized_xpub.find(']')
+                if close_idx == -1:
+                    raise click.UsageError('invalid origin info in XPUB argument')
+                origin_info = sanitized_xpub[1:close_idx]
+                sanitized_xpub = sanitized_xpub[close_idx + 1:]
+                try:
+                    origin_from_xpub = parse_origin_string(origin_info)
+                except ValueError as exc:
+                    raise click.UsageError(f'invalid origin info in XPUB: {exc}') from exc
+
+        seed_xfp = None
+        seed_path = None
+        if origin_from_xpub:
+            seed_xfp, seed_path = origin_from_xpub
+        if parsed_seed_origin:
+            override_xfp, override_path = parsed_seed_origin
+            seed_xfp = override_xfp
+            if override_path is not None:
+                seed_path = override_path
+
+        if zero_xfp and parsed_seed_origin:
+            raise click.UsageError('--seed-origin cannot be combined with --zero-xfp')
+
+        psbt, outs = fake_txn(num_ins, num_outs, master_xpub=sanitized_xpub if xpub else None, fee=fee,
                               segwit_in=segwit, outstyles=styles, locktime=locktime,
                               partial=partial, is_testnet=testnet, wrapped=wrapped,
                               change_outputs=list(range(num_change)),
-                              psbt_v2=psbt2, input_amount=input_amount)
+                              psbt_v2=psbt2, input_amount=input_amount,
+                              master_xfp=seed_xfp, master_origin=seed_path)
 
     signing_requested = bool(signing_mnemonic or signing_xprv)
     if signing_root_path and not signing_requested:

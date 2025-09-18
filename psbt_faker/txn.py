@@ -49,10 +49,18 @@ def fake_dest_addr(style='p2pkh'):
 
     raise ValueError('not supported: ' + style)
 
+def _normalize_xfp(master_xfp):
+    if isinstance(master_xfp, bytes):
+        return master_xfp.hex()
+    return master_xfp
+
+
 def make_change_addr(master_xfp, orig_der,  account_key, idx, style):
     # provide script, pubkey and xpath for a legit-looking change output
 
     redeem_scr, actual_scr = None, None
+
+    master_xfp = _normalize_xfp(master_xfp)
 
     if orig_der:
         path = str2path(master_xfp, f"{orig_der}/0/{idx}")
@@ -82,7 +90,8 @@ def make_change_addr(master_xfp, orig_der,  account_key, idx, style):
 def fake_txn(num_ins, num_outs, master_xpub=None, fee=10000,
          outvals=None, segwit_in=False, wrapped=False, outstyles=None,
          change_outputs=[], op_return=None, psbt_v2=None, input_amount=1E8,
-         locktime=0, sequences=None, is_testnet=False, partial=False):
+         locktime=0, sequences=None, is_testnet=False, partial=False,
+         master_xfp=None, master_origin=None):
 
     af = ("p2sh-p2wpkh" if wrapped else "p2wpkh") if segwit_in else "p2pkh"
 
@@ -90,28 +99,15 @@ def fake_txn(num_ins, num_outs, master_xpub=None, fee=10000,
     orig_der = None
     if master_xpub:
         master_xpub = master_xpub.strip()  # annoying whitespaces
-        key_orig_info = None
-        close_idx = master_xpub.find("]")
-        if master_xpub[0] == "[" and (close_idx != -1):
-            # key has origin derivation public - parse
-            key_orig_info = master_xpub[1:close_idx]
-            master_xpub = master_xpub[close_idx + 1:]
+        base_key = BIP32Node.from_wallet_key(master_xpub)
+        account_key = base_key
 
-        account_key = BIP32Node.from_wallet_key(master_xpub)
-        if key_orig_info:
-            split_der = key_orig_info.split("/", 1)
-            if len(split_der) == 1:
-                str_xfp = split_der[0]
-                orig_der = None
-            else:
-                str_xfp, orig_der = split_der
+        xfp = master_xfp if master_xfp is not None else base_key.fingerprint()
+        orig_der = master_origin
 
-            xfp = bytes.fromhex(str_xfp)
-
-        else:
-            xfp = account_key.fingerprint()
+        if orig_der is None:
             try:
-                assert account_key.privkey() is not None
+                assert base_key.privkey() is not None
                 # user provided extended private key, we can simulate proper hardened derivations
                 if af == "p2wpkh":
                     purpose = 84
@@ -121,12 +117,18 @@ def fake_txn(num_ins, num_outs, master_xpub=None, fee=10000,
                     purpose = 44
 
                 orig_der = f"{purpose}h/{int(is_testnet)}h/0h"
-                account_key = account_key.subkey_for_path(orig_der)
-            except: pass
+                account_key = base_key.subkey_for_path(orig_der)
+            except:  # pragma: no cover - defensive, keep previous behaviour
+                pass
+        else:
+            # account key already represents the account level, keep behaviour consistent
+            pass
     else:
         # special value for COLDCARD: zero xfp => anyone can try to sign
         account_key = BIP32Node.from_master_secret(b'1' * 32)
-        xfp = bytes(4)
+        xfp = master_xfp if master_xfp is not None else bytes(4)
+
+    xfp_hex = _normalize_xfp(xfp)
 
     psbt = BasicPSBT()
 
@@ -159,9 +161,9 @@ def fake_txn(num_ins, num_outs, master_xpub=None, fee=10000,
             psbt.inputs[i].bip32_paths[sec] = b'Nope' + struct.pack('<II', 1, i)
         else:
             if orig_der:
-                dp = str2path(xfp.hex(), f"{orig_der}/{subder}")
+                dp = str2path(xfp_hex, f"{orig_der}/{subder}")
             else:
-                dp = str2path(xfp.hex(), subder)
+                dp = str2path(xfp_hex, subder)
 
             psbt.inputs[i].bip32_paths[sec] = dp
 
@@ -235,7 +237,7 @@ def fake_txn(num_ins, num_outs, master_xpub=None, fee=10000,
             style = outstyles[i % len(outstyles)]
 
         if i in change_outputs:
-            scr, act_scr, isw, pubkey, sp = make_change_addr(xfp.hex(), orig_der,
+            scr, act_scr, isw, pubkey, sp = make_change_addr(xfp_hex, orig_der,
                                                              account_key, i, style)
 
             if len(pubkey) == 32:  # xonly
