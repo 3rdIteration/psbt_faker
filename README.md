@@ -34,6 +34,41 @@ python3 -m pip install -r requirements.txt
 python3 -m psbt_faker --help
 ```
 
+### Signing PSBTs (SeedSigner compatibility)
+
+`psbt_faker` can now attach real signatures so that the generated transactions
+can be loaded and approved by [SeedSigner](https://github.com/3rdIteration/seedsigner)
+or other signing tools. Provide either a BIP39 mnemonic or an extended private
+key together with the derivation information used to build the fake wallet:
+
+```sh
+# Example: derive signatures for a BIP84 testnet account and keep both
+# unsigned and signed copies of the PSBT along with the fully signed transaction.
+python3 -m psbt_faker unsigned.psbt "[F23A9C1D/84h/1h/0h]tpub..." \
+    --segwit --styles p2wpkh --num-outs 2 \
+    --signing-mnemonic "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" \
+    --signed-psbt signed.psbt \
+    --final-txn signed.txn
+```
+
+Key points when signing:
+
+* Include origin information (`[xfp/path]xpub`) so the PSBT records the full
+  derivation path required by SeedSigner.
+* Use `--signing-passphrase` if the mnemonic is protected by a BIP39
+  passphrase. Alternatively, `--signing-xprv` accepts an extended private key
+  (for example, an account-level `xprv`/`tprv`).
+* `--signing-root-path` lets you apply an additional derivation step to the
+  signing key before matching the fingerprint stored in the PSBT. This is
+  useful when the PSBT paths are relative to an account-level key (for example,
+  when your XPUB string does not include origin information).
+* `--signed-psbt` writes the signed PSBT to a separate file while preserving
+  the unsigned copy. Without it the output file is replaced with the signed
+  version.
+* `--final-txn` saves the fully signed transaction (in binary form) once the
+  inputs are finalized. Skip it and add `--no-finalize` if you only need
+  partial signatures for a hardware signer to finalize.
+
 ## Usage
 
 ```sh
